@@ -4,8 +4,9 @@ from pathlib import Path
 import altair as alt
 import pandas as pd
 import streamlit as st
-from app import data, selection, settings_ui
-from app.engine import ROOT, Router, run
+from app import data, selection, settings_ui, criteria
+from app.engine import ROOT, run
+from app.runtime import resident_router as process_router
 
 LABELS = {"overall_relevance": "Overall Relevance", "requested_data": "Requested Data", "supporting_context": "Supporting Context",
           "financial_table": "Financial Table", "cross_reference_or_footnote": "Cross Reference / Footnote", "routing_score": "Routing Score"}
@@ -16,7 +17,7 @@ st.caption("Local SemIf probabilities on GX10. Selection policies and benchmark 
 
 @st.cache_resource
 def resident_router():
-    return Router()
+    return process_router()
 
 
 inputs_tab, results_tab, settings_tab = st.tabs(["Analyze / Saved Runs", "Results", "Settings"])
@@ -54,6 +55,13 @@ with inputs_tab:
 raw = selection.model_result(st.session_state.result) if "result" in st.session_state else None
 run_key = selection.digest(raw)[:16] if raw else "no_run"
 with settings_tab:
+    with st.expander("Current classifier criteria / exact prompts — new inference only"):
+        st.json(criteria.versions({"prompt_version": criteria.PROMPT_VERSION, "classifier_criteria_version": criteria.CRITERIA_VERSION}))
+        st.caption("Changing classifier wording requires new inference. Selection thresholds use saved probabilities only. v1 and v2 probabilities are not directly interchangeable.")
+        for key, question in criteria.QUESTIONS.items():
+            st.write(key)
+            st.code(question, language=None)
+            st.json(criteria.OPTIONS[key])
     try:
         active_settings = settings_ui.render(run_key, len(raw["pages"]) if raw else 0)
     except (ValueError, OSError) as exc:
@@ -77,6 +85,8 @@ with results_tab:
         st.session_state.current_selection = policy
         scored, complete = len(pages) - len(policy["unscored_pages"]), policy["statistics_valid"]
         st.subheader("Run overview")
+        st.write("Saved classifier versions:", criteria.versions(metrics))
+        st.caption("Legacy v1 and semantic-equivalence v2 probabilities are not directly interchangeable. Settings only reselect saved probabilities.")
         st.write(f"**{metrics['pdf']}** · {len(pages)} pages · {metrics['model']} · {metrics['backend']} · {metrics['device']}")
         st.write(f"**{scored} / {len(pages)} successfully scored**")
         if not complete:
@@ -167,6 +177,21 @@ with results_tab:
         st.write("Selection reasons:", policy["selection_reasons"].get(str(number), []))
         st.text_area("Full extracted page text", page["extracted_text"], height=250)
         st.code(page.get("classifier_input", "Page was not scored"), language=None)
+        for index, key in enumerate(data.QUESTIONS):
+            with st.expander(f"Criterion: {key}"):
+                st.write(criteria.versions(page if "prompt_version" in page else metrics))
+                st.code(page.get("classification_questions", {}).get(key, "Unavailable in this saved run"), language=None)
+                options = page.get("classification_options", [])
+                st.json(options.get(key, []) if isinstance(options, dict) else options)
+                probabilities = (page.get("scores") or {}).get(key, {})
+                st.json(probabilities)
+                if probabilities:
+                    st.write("Decision margin (YES − NO):", probabilities["yes"] - probabilities["no"])
+                distributions = page.get("raw_distributions") or []
+                st.json(distributions[index] if index < len(distributions) else {})
+                st.caption("Raw distribution prompt_version identifies the unchanged upstream SemIf renderer; application criteria versions are shown above.")
+                st.write("Exact prompt tokens:", page.get("exact_prompt_tokens", {}).get(key))
+                st.code(page.get("exact_prompts", {}).get(key, "Unavailable in this saved run"), language=None)
         st.json(page)
         st.subheader("Exports")
         if st.button("Export Selection Snapshot", key="export_selection"):

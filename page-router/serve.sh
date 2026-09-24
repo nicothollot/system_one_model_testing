@@ -9,7 +9,7 @@ if curl --silent --fail http://127.0.0.1:8507/_stcore/health >/dev/null; then
     echo "Router GUI already available at remote 127.0.0.1:8507"
     exit 0
 fi
-nohup .venv/bin/python -m streamlit run gui.py --server.address=127.0.0.1 --server.port=8507 > logs/gui.log 2>&1 < /dev/null &
+nohup .venv/bin/python launch.py > logs/gui.log 2>&1 < /dev/null &
 echo "$!" > .gui.pid
 for attempt in $(seq 1 30); do
     if curl --silent --fail http://127.0.0.1:8507/_stcore/health >/dev/null; then

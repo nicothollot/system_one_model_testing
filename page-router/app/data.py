@@ -6,15 +6,7 @@ import json
 import math
 from pathlib import Path
 
-QUESTIONS = {
-    "overall_relevance": "Could this page reasonably help extract or verify any requested information, including evidence, tables, definitions, calculations, assumptions, methodology, supporting context, footnotes or cross-references? Favor potentially useful evidence when uncertain.",
-    "requested_data": "Does this page appear to directly contain one or more values, facts, data points or fields requested by the extraction objective?",
-    "supporting_context": "Could this page contain definitions, methodology, assumptions, explanations, context or related evidence needed to correctly understand the requested information?",
-    "financial_table": "Does this page appear to contain a financial, transaction, valuation or other data table relevant to the requested extraction objective?",
-    "cross_reference_or_footnote": "Does this page contain notes, definitions, cross-references, citations, footnotes or other supporting information that could affect interpretation of the requested information?",
-}
-OPTIONS = [{"id": "yes", "description": "Yes, the page could provide the described useful information for this extraction objective."},
-           {"id": "no", "description": "No, the page does not appear to provide the described useful information for this extraction objective."}]
+from app.criteria import QUESTIONS, OPTIONS
 TEMPLATE = "EXTRACTION OBJECTIVE\n{objective}\n\nPAGE {page}\n{text}"
 
 

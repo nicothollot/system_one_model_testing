@@ -1,6 +1,6 @@
 # Post-inference selection settings and benchmark evaluation
 
-The model side is unchanged: Qwen3.5-4B, SemIf's direct shared scoring, the five questions, A/B order, compact objective compiler and 8,192-token cap all remain as before. `app/selection.py` imports no inference backend and never changes probabilities. `app/settings.py` stores only policy parameters. Ground truth is evaluation input, not extraction input.
+The inference architecture is unchanged (criteria wording is versioned separately): Qwen3.5-4B, SemIf's direct shared scoring, A/B order, compact objective compiler and 8,192-token cap all remain as before. `app/selection.py` imports no inference backend and never changes probabilities. `app/settings.py` stores only policy parameters. Ground truth is evaluation input, not extraction input.
 
 ## Using the GUI
 
@@ -20,9 +20,9 @@ Changes are session-local until Save Settings. Saved settings are shared by new 
 
 All new policy comparisons are **inclusive `>=`**. Legacy raw inference exports may contain a historical strict-`>` overall threshold summary; it remains untouched as historical data and is not used by the new selection UI.
 
-**Benchmark — Direct Fields** (startup default): `requested_data >= 0.60`, radius 0. OCR/router automatic inclusions start off so this is a pure direct-signal benchmark. Both review queues remain visible, and incomplete inference still disables performance/reduction claims.
+**Benchmark — Direct Fields** (startup default): `requested_data >= 0.70`, radius 0. OCR/router automatic inclusions start off so this is a pure direct-signal benchmark. Both review queues remain visible, and incomplete inference still disables performance/reduction claims.
 
-**Production — Recall First**: include requested_data >= 0.60 OR overall_relevance >= 0.90 OR supporting_context >= 0.90 with overall >= 0.55 OR cross_reference_or_footnote >= 0.95 with overall >= 0.55. OCR and router-review inclusion are on; neighbor radius is 1. Financial-table rescue is off. When enabled, it requires financial_table >= 0.97 AND overall >= 0.65 and applies only to Recall First OR mode. This preset name does not imply production integration or empirically established thresholds.
+**Production — Recall First**: include requested_data >= 0.70 OR overall_relevance >= 0.95 OR supporting_context >= 0.95 with overall >= 0.70 OR cross_reference_or_footnote >= 0.97 with overall >= 0.70. OCR and router-review inclusion are on; neighbor radius is 1. Financial-table rescue is off. When enabled, it requires financial_table >= 0.98 AND overall >= 0.75 and applies only to Recall First OR mode. This preset name does not imply production integration or empirically established thresholds.
 
 **Weighted Score**: `0.65*requested_data + 0.20*overall_relevance + 0.10*supporting_context + 0.05*cross_reference_or_footnote + 0.00*financial_table`, with threshold 0.55. Every weight and the threshold are editable. The application warns if the weights do not sum to one and uses the values exactly as entered. Routing Score is a diagnostic weighted sum, not a calibrated probability; it is shown in every mode but affects model-rule selection only in Weighted Score mode.
 
@@ -60,13 +60,13 @@ The rationale for the defaults is the earlier 40-page observation: requested_dat
 
 ## Exports and validation
 
-New inference still automatically writes the unchanged raw JSON/CSV. **Results → Export Selection Snapshot** writes new `outputs/page_router_selection_<UTC>_<id>.json` and `.csv` files. JSON keeps the original `run`, `inputs`, `pages`, raw logits/probabilities, and legacy metadata unchanged, adding a separate `selection` object with settings, stages, reasons, routing scores, labels and metrics. A canonical `source_model_result_sha256` identifies the immutable raw result. CSV contains every page and all original probability columns plus selection flags/reasons and routing score. The original files are never overwritten. Re-export after changing settings; download buttons only represent the currently exported policy.
+New inference automatically writes raw JSON/CSV; policy evaluation leaves these original files unchanged. **Results → Export Selection Snapshot** writes new `outputs/page_router_selection_<UTC>_<id>.json` and `.csv` files. JSON keeps the original `run`, `inputs`, `pages`, raw logits/probabilities, and legacy metadata unchanged, adding a separate `selection` object with settings, stages, reasons, routing scores, labels and metrics. A canonical `source_model_result_sha256` identifies the immutable raw result. CSV contains every page and all original probability columns plus selection flags/reasons and routing score. The original files are never overwritten. Re-export after changing settings; download buttons only represent the currently exported policy.
 
 `./fetch-results.sh` copies all outputs/logs back to WSL. Raw/private artifacts and active settings are not committed to GitHub.
 
-Validation: 39 automated tests passed. The latest real 40-page result (`page_router_run_20260924_185941_153783_bd8bb3.json`) was opened in the GUI test harness with `engine.run`, `Router.load`, `Router.classify`, and both SemIf score entry points blocked. Threshold changes altered selection; presets, weights, graph series, labels and sweeps worked; settings survived a fresh GUI session. The source file bytes and all raw probabilities remained unchanged.
+Original policy-layer validation, before semantic v2: 39 automated tests passed. The then-current real 40-page result (`page_router_run_20260924_185941_153783_bd8bb3.json`) was opened in the GUI test harness with `engine.run`, `Router.load`, `Router.classify`, and both SemIf score entry points blocked. Threshold changes altered selection; presets, weights, graph series, labels and sweeps worked; settings survived a fresh GUI session. The source file bytes and all raw probabilities remained unchanged.
 
-Temporary labels `12,20,26,32,40` were used only to verify the software, **not as an accuracy annotation**. At the default direct policy, all 40 pages were selected, yielding TP=5, FP=35, TN=0, FN=0 against those temporary labels. Raising the threshold to 1.00 changed selection and correctly updated false negatives. Temporary labels/settings were isolated from the live configuration. Evidence is in `outputs/selection-validation/validation.json` and `logs/selection-real-validation.log`.
+Temporary labels `12,20,26,32,40` were used only to verify the software, **not as an accuracy annotation**. At the then-default direct policy, all 40 pages were selected, yielding TP=5, FP=35, TN=0, FN=0 against those temporary labels. Raising the threshold to 1.00 changed selection and correctly updated false negatives. Temporary labels/settings were isolated from the live configuration. Evidence is in `outputs/selection-validation/validation.json` and `logs/selection-real-validation.log`.
 
 Reproduce saved-run-only validation on GX10 without model inference:
 

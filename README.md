@@ -4,7 +4,7 @@ Standalone PDF page-selection benchmark. All inference runs on `gx10-fbb7`; it n
 
 Routing objectives are compiled compactly and every prompt is token-checked before inference. See the [40-page regression report](page-router/REGRESSION_REPORT.md) for validation of the 80-field benchmark fix.
 
-Use the **Settings** tab to configure post-inference selection, presets, neighbors and benchmark ground truth. The startup preset is **Benchmark — Direct Fields** (`requested_data >= 0.60`, no neighbors). See the [selection and calibration guide](page-router/SELECTION.md).
+Use the **Settings** tab to configure post-inference selection, presets, neighbors and benchmark ground truth. The startup preset is **Benchmark — Direct Fields** (`requested_data >= 0.70`, no neighbors). See the [selection and calibration guide](page-router/SELECTION.md).
 
 From this directory on NicoPC WSL:
 

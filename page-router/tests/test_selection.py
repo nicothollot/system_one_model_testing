@@ -13,7 +13,7 @@ def page(n, requested=.1, overall=.1, context=.1, cross=.1, financial=.1, **extr
 
 
 def test_requested_data_inclusive_and_raw_unchanged():
-    pages = [page(1, .60, .1), page(2, .599, .99)]
+    pages = [page(1, .70, .1), page(2, .699, .99)]
     before = copy.deepcopy(pages)
     result = selection.select_pages(pages, settings.defaults())
     assert result["final_selected_pages"] == [1]
@@ -22,8 +22,8 @@ def test_requested_data_inclusive_and_raw_unchanged():
 
 
 def test_recall_or_gates_financial_disabled_and_multiple_reasons():
-    pages = [page(1, .6, .9, .9, .95, 1), page(2, .1, .54, 1, 1), page(3, .1, .55, .9),
-             page(4, .1, .55, .1, .95), page(5, .1, .65, .1, .1, .97)]
+    pages = [page(1, .7, .95, .95, .97, 1), page(2, .1, .69, 1, 1), page(3, .1, .70, .95),
+             page(4, .1, .70, .1, .97), page(5, .1, .75, .1, .1, .98)]
     policy = settings.preset("production_recall")
     policy["neighbor_radius"] = 0
     result = selection.select_pages(pages, policy)
@@ -31,7 +31,7 @@ def test_recall_or_gates_financial_disabled_and_multiple_reasons():
     assert set(result["selection_reasons"]["1"]) == {"requested_data_threshold", "overall_relevance_threshold", "supporting_context_rescue", "cross_reference_rescue"}
     policy["financial_table_enabled"] = True
     assert selection.select_pages(pages, policy)["final_selected_pages"] == [1, 3, 4, 5]
-    policy["financial_table_min_overall"] = .66
+    policy["financial_table_min_overall"] = .76
     assert 5 not in selection.select_pages(pages, policy)["final_selected_pages"]
 
 
@@ -79,7 +79,7 @@ def test_manual_review_and_incomplete_run_are_not_fake_metrics():
 def test_settings_persistence_presets_and_reset(tmp_path):
     path, presets = tmp_path / "router_settings.json", tmp_path / "presets.json"
     initial = settings.load(path)
-    assert initial["mode"] == "requested_data_only" and initial["requested_data_threshold"] == .6
+    assert initial["mode"] == "requested_data_only" and initial["requested_data_threshold"] == .7
     custom = {**initial, "preset": "custom", "requested_data_threshold": .72, "neighbor_radius": 2}
     settings.save(custom, path)
     assert settings.load(path) == custom

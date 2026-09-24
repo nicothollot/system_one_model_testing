@@ -75,6 +75,8 @@ def test_oversized_objective_fails_before_model_loading(tokenizer, tmp_path, mon
     monkeypatch.setattr(engine, "guard", lambda *a: None)
     result = engine.run(router, "too-large.pdf", pdf, json.dumps(source).encode(), workbook)
     assert result["run"]["status"] == "FAILED_INPUT_PREPARATION"
+    assert result["run"]["prompt_version"] == "direct-options-v2"
+    assert result["run"]["classifier_criteria_version"] == "semantic-equivalence-v2"
     assert result["run"]["scored_pages"] == result["run"]["model_forward_seconds"] == 0
     assert "compaction" in result["run"]["classification_error"]
     assert result["threshold_summary"] == {}

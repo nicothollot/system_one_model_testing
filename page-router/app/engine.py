@@ -1,4 +1,5 @@
 """GX10-only resident SemIf adapter and benchmark orchestration."""
+from app import criteria
 import datetime as dt
 import fcntl
 import gc
@@ -200,7 +201,7 @@ def run(router, pdf_name, pdf_bytes, json_bytes, xlsx_bytes, progress=lambda mes
                                                 "backend": "torch / SemIf shared", "device": "cuda:0 (inference not attempted)"})
         result = {
             "run": {"timestamp": dt.datetime.now(dt.timezone.utc).isoformat(), "pdf": pdf_name, **metadata,
-                    "schema_version": 2, "hostname": platform.node(), "total_pages": len(pages), "scored_pages": len(times), "status": status,
+                    "prompt_version": criteria.PROMPT_VERSION, "classifier_criteria_version": criteria.CRITERIA_VERSION, "schema_version": 2, "hostname": platform.node(), "total_pages": len(pages), "scored_pages": len(times), "status": status,
                     "classification_error": " ".join(input_errors) if input_errors else None,
                     "selection_statistics_valid": complete, "unscored_pages": [p["page"] for p in pages if not p.get("scores")],
                     **token_budget, "objective_compiler_version": compilation["version"],

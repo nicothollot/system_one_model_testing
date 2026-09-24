@@ -27,7 +27,7 @@ From `/home/nicot/dev/system_one_model_testing`:
 
 Open `http://localhost:8507`. Select exactly the PDF, instructions JSON and reference XLSX, then **Analyze Pages**. First analysis loads the model; later analyses reuse the same process and model. One analysis runs at a time. Closing the SSH tunnel leaves the remote GUI/model process alive; running the command again reconnects. A process lock prevents a second router model instance. The first connection requires GX10 to have at least 18 GiB available before loading; analysis requires at least 8 GiB available.
 
-The GUI contains all five YES/NO distributions, selected-row highlights and reasons, weighted scores, sortable columns, configurable graph series, exact state/question/options/chat prompts, raw logits, extraction warnings and exceptions. Settings operate solely on stored results. The default is **Benchmark — Direct Fields**, requested_data >= 0.60 with radius 0; Production — Recall First supplies conservative rescue rules and radius 1. New selection comparisons are inclusive `>=`; historical raw inference threshold summaries remain unchanged but are not used by the new UI.
+The GUI contains all five YES/NO distributions, selected-row highlights and reasons, weighted scores, sortable columns, configurable graph series, exact state/question/options/chat prompts, raw logits, extraction warnings and exceptions. Settings operate solely on stored results. The default is **Benchmark — Direct Fields**, requested_data >= 0.70 with radius 0; Production — Recall First supplies conservative rescue rules and radius 1. New selection comparisons are inclusive `>=`; historical raw inference threshold summaries remain unchanged but are not used by the new UI.
 
 Input JSON must be a nonempty object/array. Complete original JSON, parsed workbook cells (including formula text/cached values), and every page's extracted text remain in the debug export. These originals are **not** appended to classifier state. `app/objective.py` deterministically compiles the smaller `compiled_routing_objective`: field names, section cues, useful types/units, and field-specific semantic constraints. Fields are grouped by section; section labels are relevance cues, not exclusive page filters. No requested field is truncated or dropped.
 
@@ -114,3 +114,44 @@ This checks original-file hashes and page text, actual model-forward timings on 
 - **Quality:** fixed A/B option order, wording and BF16 shared-cache execution can affect scores. Probabilities are not calibrated. Real-PDF recall, false negatives, concurrent-load latency and long-document throughput need separate measurement. No production threshold is chosen.
 
 Main implementation: `app/data.py` (parsing/export/simulation), `app/objective.py` (compact compiler), `app/preparation.py` (token preflight), `app/engine.py` (resident model and benchmark), `app/monitor.py` (memory), `gui.py` (UI), `app/smoke.py`, `app/regression.py`, and `tests/` (validation).
+
+## Semantic equivalence criteria v2
+
+New inference uses application `prompt_version=direct-options-v2` and
+`classifier_criteria_version=semantic-equivalence-v2`. Same concept under a
+synonym: **YES**. Nearby or related but distinct metric: **NO**.
+
+| Requested | Page contains | Direct requested data |
+| --- | --- | --- |
+| Quarterly revenue | Quarterly net sales for the same period | YES |
+| Quarterly revenue | Bookings | NO |
+| Interest expense | Financing cost recognized | YES |
+| Interest expense | Cash interest paid | NO |
+| Revolver capacity | Aggregate commitments | YES |
+| Revolver capacity | Unused availability | NO |
+
+These are the intended semantics, not guarantees of perfect classification.
+All five criteria have distinct YES/NO descriptions. Settings exposes current
+exact wording; Page Detail shows the wording actually used for that saved page,
+option logits, full distributions, binary decision margins and exact prompts.
+SemIf's unchanged upstream renderer still reports `direct-options-v1` inside
+raw distributions; the application's run/page versions identify the revised
+criteria. Missing application versions are explicitly labeled legacy v1.
+v1 and v2 probabilities are not directly interchangeable: changing wording
+requires new inference; changing selection thresholds never does.
+
+The shipped direct threshold is **0.70**, not 0.99: a very high cutoff can miss
+legitimate semantic aliases. Financial-table scores remain diagnostic by
+default. Existing saved custom settings and presets are preserved on deployment;
+choose **Benchmark — Direct Fields → Load Preset** (then Save Settings) to
+adopt the new defaults. Production rescue thresholds are documented in
+[SELECTION.md](SELECTION.md). Threshold sweeps are diagnostic and never silently
+change the shipped policy.
+
+The optional `launch.py --benchmark-manifest /private/path.json` entry point
+accepts a list of three-path objects (`pdf`, `json`, `xlsx`) only, runs inference,
+and starts the GUI in that same process. Its router remains resident for GUI
+analyses. Evaluation labels are supplied separately after inference. Ordinary
+`./run.sh` startup is unchanged; neither entry point calls the 27B extractor.
+
+See [SEMANTIC_V2_REPORT.md](SEMANTIC_V2_REPORT.md) for final benchmark artifacts, full threshold tables, measured runtime/memory and remaining limitations.

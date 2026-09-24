@@ -72,7 +72,7 @@ def test_settings_labels_presets_saved_results_never_infer(tmp_path, monkeypatch
     monkeypatch.setattr(engine.Router, "load", forbidden)
     monkeypatch.setattr(engine.Router, "classify", forbidden)
     raw = {"run": {"pdf": "saved.pdf", "model": "fixture", "backend": "fixture", "device": "none", "status": "completed"},
-           "inputs": {"compiled_routing_objective": "UNCHANGED REQUEST"}, "pages": [page(1,.8), page(2,.1), page(3,.6)]}
+           "inputs": {"compiled_routing_objective": "UNCHANGED REQUEST"}, "pages": [page(1,.8), page(2,.1), page(3,.7)]}
     before = copy.deepcopy(raw)
     app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / "gui.py"))
     app.session_state["result"] = raw
@@ -101,3 +101,23 @@ def test_settings_labels_presets_saved_results_never_infer(tmp_path, monkeypatch
     assert app.session_state.policy_settings == settings.defaults()
     assert app.session_state.result == before
     assert app.session_state.current_selection["benchmark_ground_truth"] == [1,3]
+
+
+@pytest.mark.parametrize('version', ['direct-options-v1', 'direct-options-v2'])
+def test_saved_classifier_version_is_displayed_without_relabeling(version, monkeypatch):
+    from app import engine
+    from test_selection import page
+    def forbidden(*args, **kwargs):
+        pytest.fail('Version inspection must not infer')
+    monkeypatch.setattr(engine, 'run', forbidden)
+    metadata = {'pdf': 'version.pdf', 'model': 'fixture', 'backend': 'fixture', 'device': 'none', 'status': 'COMPLETED'}
+    if version.endswith('v2'):
+        metadata.update(prompt_version=version, classifier_criteria_version='semantic-equivalence-v2')
+    raw = {'run': metadata, 'inputs': {}, 'pages': [page(1, .8)]}
+    app = AppTest.from_file(str(Path(__file__).resolve().parents[1]/'gui.py'))
+    app.session_state['result'] = raw
+    app.run(timeout=20)
+    assert not app.exception
+    assert any(version in item.value for item in app.json)
+    assert any('not directly interchangeable' in item.value for item in app.caption)
+    assert ('prompt_version' in app.session_state.result['run']) == version.endswith('v2')

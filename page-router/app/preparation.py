@@ -1,7 +1,7 @@
 """Exact-token, all-page preflight before any model load/forward."""
 import time
 
-from app import data
+from app import data, criteria
 
 MAX_TOKENS = 8192
 MAX_OBJECTIVE_TOKENS = 3072
@@ -18,14 +18,14 @@ def prepare_pages(tokenizer, pages, objective):
     for page in pages:
         started = time.perf_counter()
         state = data.TEMPLATE.format(objective=objective, page=page["page"], text=page["extracted_text"])
-        rows = [{"id": f"page-{page['page']}-{key}", "state": state, "question": question, "options": data.OPTIONS}
+        rows = [{"id": f"page-{page['page']}-{key}", "state": state, "question": question, "options": data.OPTIONS[key]}
                 for key, question in data.QUESTIONS.items()]
         prompts = {key: tokenizer.apply_chat_template(direct_messages(row), tokenize=False, add_generation_prompt=True,
                                                       enable_thinking=False) for key, row in zip(data.QUESTIONS, rows)}
         counts = {key: len(tokenizer.encode(prompt, add_special_tokens=False)) for key, prompt in prompts.items()}
         headroom = {key: MAX_TOKENS - count for key, count in counts.items()}
         page_tokens = len(tokenizer.encode(page["extracted_text"], add_special_tokens=False))
-        page.update(classifier_input=state, classifier_rows=rows, classification_questions=data.QUESTIONS,
+        page.update(prompt_version=criteria.PROMPT_VERSION, classifier_criteria_version=criteria.CRITERIA_VERSION, classifier_input=state, classifier_rows=rows, classification_questions=data.QUESTIONS,
                     classification_options=data.OPTIONS, exact_prompts=prompts, exact_prompt_tokens=counts,
                     available_token_headroom=headroom, page_text_tokens=page_tokens, tokens=page_tokens,
                     routing_objective_tokens=objective_tokens, scores=None, raw_distributions=None,
