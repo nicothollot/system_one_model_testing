@@ -1,0 +1,6 @@
+# SemIf and its exact dependencies installed separately by setup-remote.sh.
+streamlit==1.64.0
+pymupdf==1.27.2
+openpyxl==3.1.5
+psutil==7.2.2
+pytest==8.4.2

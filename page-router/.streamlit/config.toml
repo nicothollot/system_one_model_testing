@@ -1,0 +1,12 @@
+[browser]
+gatherUsageStats = false
+
+[server]
+address = "127.0.0.1"
+port = 8507
+headless = true
+fileWatcherType = "none"
+maxUploadSize = 200
+
+[client]
+toolbarMode = "minimal"
