@@ -68,7 +68,8 @@ def test_threshold_and_expansion():
     assert data.expand([1, 3, 4], 4) == [1, 2, 3, 4]
     assert data.expand([1], 1) == [1]
     assert data.expand([], 4) == []
-    assert data.thresholds(pages)["0.50"]["retained_percent"] == 50
+    assert data.thresholds(pages) == {}
+    assert data.thresholds(pages[:3])["0.50"]["count"] == 2
 
 
 def test_exports(tmp_path):

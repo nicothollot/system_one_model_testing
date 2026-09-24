@@ -14,6 +14,8 @@ import time
 import uuid
 
 from app import data
+from app.objective import compile_objective
+from app.preparation import MAX_TOKENS, prepare_pages
 from app.monitor import Monitor, command, guard, snapshot
 
 MODEL = "Qwen/Qwen3.5-4B"
@@ -21,7 +23,6 @@ REVISION = "851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a"
 SEMIF_COMMIT = "23cf1f39fc9534fe81437200959b6dfc7106e45a"
 ROOT = Path(__file__).resolve().parents[1]
 MODEL_PATH = ROOT / "models" / "Qwen3.5-4B"
-MAX_TOKENS = 8192
 
 
 def offline():
@@ -57,6 +58,12 @@ class Router:
         self.load_seconds = 0
         self.log = logger("router-service")
         self.log.info("Application start: host=%s python=%s; no external inference configured", platform.node(), platform.python_version())
+
+    def get_tokenizer(self):
+        if not hasattr(self, "tokenizer"):
+            from transformers import AutoTokenizer
+            self.tokenizer = AutoTokenizer.from_pretrained(str(MODEL_PATH), local_files_only=True, trust_remote_code=False)
+        return self.tokenizer
 
     def load(self, progress=lambda message: None):
         if self.model is not None:
@@ -103,32 +110,20 @@ class Router:
         self.log.info("Model loaded in %.6fs metadata=%s after=%s", self.load_seconds, json.dumps(self.metadata), json.dumps(self.after_load))
         return True
 
-    def classify(self, page, objective):
-        from semif_phase1.core import direct_messages
-        from semif_phase1.direct import encode_prompt
+    def classify(self, page):
         from semif_phase1.shared import score_shared
         started = time.perf_counter()
-        state = data.TEMPLATE.format(objective=objective, page=page["page"], text=page["extracted_text"])
-        rows = [{"id": f"page-{page['page']}-{key}", "state": state, "question": question, "options": data.OPTIONS}
-                for key, question in data.QUESTIONS.items()]
-        page.update(classifier_input=state, classification_questions=data.QUESTIONS, classification_options=data.OPTIONS,
-                    classifier_rows=rows, tokens=len(self.tokenizer.encode(page["extracted_text"], add_special_tokens=False)),
-                    exact_prompts={key: self.tokenizer.apply_chat_template(direct_messages(row), tokenize=False,
-                                  add_generation_prompt=True, enable_thinking=False) for key, row in zip(data.QUESTIONS, rows)},
-                    scores=None, raw_distributions=None, exception=None, fallback=None)
         try:
-            for row in rows:
-                encode_prompt(self.tokenizer, row, MAX_TOKENS)
-            page["context_preparation_seconds"] = time.perf_counter() - started
             guard(8, self.before["swap_used_bytes"])
-            results, timing = score_shared(self.model, self.tokenizer, rows, self.metadata, max_tokens=MAX_TOKENS)
+            results, timing = score_shared(self.model, self.tokenizer, page["classifier_rows"], self.metadata, max_tokens=MAX_TOKENS)
+            page.update(raw_distributions=results, semif_timing=timing)
             scores = {key: dict(zip(result["option_ids"], result["probabilities"])) for key, result in zip(data.QUESTIONS, results)}
             data.validate_scores(scores)
             page.update(scores=scores, raw_distributions=results, semif_timing=timing, classification_status="scored")
         except ValueError as exc:
-            # Never convert context limits or invalid probabilities into a negative decision.
-            page.update(exception=str(exc), classification_status="unscored", needs_visual_or_ocr_review=True)
-        page["classification_seconds"] = time.perf_counter() - started
+            page.update(exception=str(exc), classification_error=str(exc), classification_status="unscored", needs_router_review=True)
+        finally:
+            page["classification_seconds"] = time.perf_counter() - started
         return page
 
 
@@ -145,7 +140,8 @@ def run(router, pdf_name, pdf_bytes, json_bytes, xlsx_bytes, progress=lambda mes
         progress("File parsing: JSON and reference XLSX")
         mark = time.perf_counter()
         instructions, reference = data.parse_json(json_bytes), data.parse_xlsx(xlsx_bytes)
-        objective = data.objective(instructions, reference)
+        compilation = compile_objective(instructions, reference)
+        objective = compilation["compiled_routing_objective"]
         parsing_seconds = time.perf_counter() - mark
         log.info("PDF preprocessing start")
         progress("PDF preprocessing: extracting every page")
@@ -153,40 +149,63 @@ def run(router, pdf_name, pdf_bytes, json_bytes, xlsx_bytes, progress=lambda mes
         pages = data.preprocess(pdf_bytes)
         preprocessing_seconds = time.perf_counter() - mark
         log.info("PDF preprocessing end: pages=%d seconds=%.6f", len(pages), preprocessing_seconds)
-        cold = router.load(progress)
-        before_run = snapshot(router.torch, commands=True)
-        log.info("Runtime=%s before_load=%s after_load=%s before_classification=%s", json.dumps(router.metadata),
-                 json.dumps(router.before), json.dumps(router.after_load), json.dumps(before_run))
-        monitor = Monitor(router.torch).start()
-        mark = time.perf_counter()
-        aborted = None
-        for index, page in enumerate(pages):
-            progress(f"Classification: page {index + 1} / {len(pages)} — five shared-state probability questions")
-            page.update(scores=None, classification_seconds=0, classification_status="unscored", exception=aborted)
-            if aborted:
-                page["needs_visual_or_ocr_review"] = True
-                continue
-            try:
-                router.classify(page, objective)
-            except Exception as exc:
-                aborted = f"{type(exc).__name__}: {exc}"
-                page.update(exception=aborted, classification_status="error", needs_visual_or_ocr_review=True)
-                log.exception("Classification aborted; no generation or CPU fallback; vLLM untouched")
-                gc.collect()
-                router.torch.cuda.empty_cache()
-            log.info("Page %d seconds=%.6f probabilities=%s warning=%s exception=%s", page["page"], page["classification_seconds"],
-                     json.dumps(page["scores"]), page["text_extraction_warning"], page.get("exception"))
-        classification_seconds = time.perf_counter() - mark
-        memory = monitor.stop()
-        monitor = None
-        after_run = snapshot(router.torch, commands=True)
+        progress("Input preparation: compiling objective and checking every exact prompt token budget")
+        token_budget = prepare_pages(router.get_tokenizer(), pages, objective)
+        log.info("Routing compilation: fields=%d XLSX_duplicates=%d token_budget=%s", compilation["requested_field_count"],
+                 compilation["xlsx_duplicates_removed"], json.dumps(token_budget))
+        progress(f"Input preparation: objective {token_budget['routing_objective_tokens']} tokens; "
+                 f"prompts {token_budget['exact_prompt_tokens_min']}–{token_budget['exact_prompt_tokens_max']}; "
+                 f"minimum headroom {token_budget['available_token_headroom_min']}")
+        cold, classification_seconds, memory = False, 0, None
+        input_errors = token_budget["input_preparation_errors"]
+        if input_errors:
+            error = "INPUT PREPARATION FAILED: " + " ".join(input_errors)
+            log.error(error)
+            progress(error)
+            for page in pages:
+                page.update(classification_status="not_attempted", classification_error=error, exception=error, needs_router_review=True)
+            before_run = after_run = snapshot(getattr(router, "torch", None), commands=True)
+        else:
+            cold = router.load(progress)
+            before_run = snapshot(router.torch, commands=True)
+            log.info("Runtime=%s before_load=%s after_load=%s before_classification=%s", json.dumps(router.metadata),
+                     json.dumps(router.before), json.dumps(router.after_load), json.dumps(before_run))
+            monitor = Monitor(router.torch).start()
+            mark = time.perf_counter()
+            aborted = None
+            for index, page in enumerate(pages):
+                progress(f"Classification: page {index + 1} / {len(pages)} — five shared-state probability questions")
+                if aborted:
+                    page.update(classification_status="not_attempted", classification_error=aborted, exception=aborted, needs_router_review=True)
+                    continue
+                try:
+                    router.classify(page)
+                except Exception as exc:
+                    aborted = f"{type(exc).__name__}: {exc}"
+                    page.update(exception=aborted, classification_error=aborted, classification_status="error", needs_router_review=True)
+                    log.exception("Classification aborted; no generation or CPU fallback; vLLM untouched")
+                    gc.collect()
+                    router.torch.cuda.empty_cache()
+                log.info("Page %d seconds=%.6f probabilities=%s warning=%s exception=%s", page["page"], page["classification_seconds"],
+                         json.dumps(page["scores"]), page["text_extraction_warning"], page.get("classification_error"))
+            classification_seconds = time.perf_counter() - mark
+            memory = monitor.stop()
+            monitor = None
+            after_run = snapshot(router.torch, commands=True)
         durations = [(p["page"], p["classification_seconds"]) for p in pages if p["classification_status"] == "scored"]
         times = [value for _, value in durations]
+        complete = len(times) == len(pages)
+        status = "FAILED_INPUT_PREPARATION" if input_errors else "COMPLETED" if complete else "FAILED_CLASSIFICATION" if not times else "PARTIAL_CLASSIFICATION"
+        metadata = getattr(router, "metadata", {"model": MODEL, "model_revision": REVISION, "semif_commit": SEMIF_COMMIT,
+                                                "backend": "torch / SemIf shared", "device": "cuda:0 (inference not attempted)"})
         result = {
-            "run": {"timestamp": dt.datetime.now(dt.timezone.utc).isoformat(), "pdf": pdf_name, **router.metadata,
-                    "hostname": platform.node(), "total_pages": len(pages), "scored_pages": len(times), "status": "completed" if len(times) == len(pages) else "partial",
+            "run": {"timestamp": dt.datetime.now(dt.timezone.utc).isoformat(), "pdf": pdf_name, **metadata,
+                    "schema_version": 2, "hostname": platform.node(), "total_pages": len(pages), "scored_pages": len(times), "status": status,
+                    "classification_error": " ".join(input_errors) if input_errors else None,
+                    "selection_statistics_valid": complete, "unscored_pages": [p["page"] for p in pages if not p.get("scores")],
+                    **token_budget, "objective_compiler_version": compilation["version"],
                     "model_load_seconds": router.load_seconds, "model_load_seconds_this_run": router.load_seconds if cold else 0,
-                    "model_reused": not cold, "input_parsing_seconds": parsing_seconds,
+                    "model_reused": not cold and router.model is not None, "input_parsing_seconds": parsing_seconds,
                     "preprocessing_seconds": preprocessing_seconds, "classification_seconds": classification_seconds,
                     "context_preparation_seconds": sum(p.get("context_preparation_seconds", 0) for p in pages),
                     "model_forward_seconds": sum(p.get("semif_timing", {}).get("prefill_seconds", 0) + p.get("semif_timing", {}).get("suffix_forward_seconds", 0) for p in pages),
@@ -197,14 +216,15 @@ def run(router, pdf_name, pdf_bytes, json_bytes, xlsx_bytes, progress=lambda mes
                     "exact_total_page_tokens": sum(p.get("tokens", 0) for p in pages),
                     "shared_prefix_tokens_processed": sum(p.get("semif_timing", {}).get("prefix_tokens", 0) for p in pages),
                     "suffix_tokens_processed": sum(p.get("semif_timing", {}).get("padded_suffix_tokens", 0) for p in pages),
-                    "memory_before": router.before, "memory_after_load": router.after_load, "memory_during_load": router.load_memory,
+                    "memory_before": getattr(router, "before", None), "memory_after_load": getattr(router, "after_load", None), "memory_during_load": getattr(router, "load_memory", None),
                     "memory_before_classification": before_run, "memory_during_classification": memory, "memory_after_run": after_run,
                     "max_prompt_tokens": MAX_TOKENS, "log": str(ROOT / "logs" / f"{stem}.log"),
                     "probability_status": "Uncalibrated probabilities conditional on declared A=yes/B=no options; no generation.",
-                    "threshold_rule": "strictly greater than threshold; unscored pages excluded from raw selection and listed separately",
+                    "threshold_rule": "strictly greater than threshold; document selection statistics disabled unless every page is scored",
                     "vllm_processes_unchanged": before_run["vllm_processes"] == after_run["vllm_processes"]},
             "inputs": {"instructions_json": instructions, "parsed_reference_fields": reference,
-                       "constructed_extraction_objective": objective, "classifier_template": data.TEMPLATE,
+                       "compiled_routing_objective": objective, "routing_objective_compilation": compilation,
+                       "classifier_template": data.TEMPLATE,
                        "filenames": input_names or {"pdf": pdf_name},
                        "sha256": {"pdf": data.fingerprint(pdf_bytes), "json": data.fingerprint(json_bytes), "xlsx": data.fingerprint(xlsx_bytes)}},
             "threshold_summary": data.thresholds(pages), "pages": pages,
@@ -214,7 +234,7 @@ def run(router, pdf_name, pdf_bytes, json_bytes, xlsx_bytes, progress=lambda mes
         data.export(result, ROOT / "outputs", stem)
         result["run"]["export_seconds"] = time.perf_counter() - mark
         result["run"]["total_seconds"] = time.perf_counter() - started
-        result["run"]["timing_scope"] = "Total ends after initial export; excludes final metadata rewrite and browser rendering. Page times include preparation and shared scoring; model_forward_seconds measures synchronized prefill+suffix only."
+        result["run"]["timing_scope"] = "Total ends after initial export; excludes final metadata rewrite and browser rendering. Context preparation is preflight; page times measure shared scoring and readout; model_forward_seconds measures synchronized prefill+suffix only."
         data.export(result, ROOT / "outputs", stem)
         log.info("Totals=%s", json.dumps(result["run"]))
         return result

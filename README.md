@@ -2,6 +2,8 @@
 
 Standalone PDF page-selection benchmark. All inference runs on `gx10-fbb7`; it never calls the existing 27B extractor. See [application README](page-router/README.md) and [verified SemIf API](page-router/RESEARCH.md).
 
+Routing objectives are compiled compactly and every prompt is token-checked before inference. See the [40-page regression report](page-router/REGRESSION_REPORT.md) for validation of the 80-field benchmark fix.
+
 From this directory on NicoPC WSL:
 
 ```bash
