@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "preset": "benchmark_direct",
+  "mode": "requested_data_only",
+  "requested_data_threshold": 0.6,
+  "overall_relevance_threshold": 0.9,
+  "supporting_context_threshold": 0.9,
+  "cross_reference_threshold": 0.95,
+  "secondary_min_overall": 0.55,
+  "financial_table_enabled": false,
+  "financial_table_threshold": 0.97,
+  "financial_table_min_overall": 0.65,
+  "requested_data_weight": 0.65,
+  "overall_relevance_weight": 0.2,
+  "supporting_context_weight": 0.1,
+  "cross_reference_weight": 0.05,
+  "financial_table_weight": 0.0,
+  "weighted_threshold": 0.55,
+  "neighbor_radius": 0,
+  "always_include_ocr_review": false,
+  "always_include_router_review": false
+}

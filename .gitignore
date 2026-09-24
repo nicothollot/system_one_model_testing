@@ -4,6 +4,8 @@ page-router/models/
 page-router/outputs/*
 page-router/logs/*
 page-router/samples/*
+page-router/config/router_settings.json
+page-router/config/router_presets.json
 __pycache__/
 .pytest_cache/
 *.egg-info/

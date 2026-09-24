@@ -2,6 +2,8 @@
 
 This is a standalone R&D application. It parses three files, constructs request-specific context, and scores five relevance questions for every PDF page using SemIf's direct native option logits. It performs no downstream field extraction and has no connection to the existing vLLM endpoint.
 
+The new **Settings** tab controls selection independently of inference, including presets, thresholds/weights, neighbors, manual-review rules, ground-truth metrics and saved-probability sweeps. See [selection and calibration guide](SELECTION.md) for the full workflow, configuration paths, formulas and validation evidence.
+
 ## Installation and architecture
 
 Source lives in `/home/nicot/dev/system_one_model_testing` on NicoPC WSL. The full application runs on GX10; the browser connects through SSH. No local model environment or weights are installed on NicoPC. Its only runtime dependencies are Bash, SSH and, for synchronization, rsync.
@@ -25,7 +27,7 @@ From `/home/nicot/dev/system_one_model_testing`:
 
 Open `http://localhost:8507`. Select exactly the PDF, instructions JSON and reference XLSX, then **Analyze Pages**. First analysis loads the model; later analyses reuse the same process and model. One analysis runs at a time. Closing the SSH tunnel leaves the remote GUI/model process alive; running the command again reconnects. A process lock prevents a second router model instance. The first connection requires GX10 to have at least 18 GiB available before loading; analysis requires at least 8 GiB available.
 
-The GUI contains all five YES/NO distributions, sortable columns, a page-number relevance graph, exact state/question/options/chat prompts, raw logits, extraction warnings and exceptions. Threshold and ±1-neighbor controls operate solely on stored results. The default 0.50 is an experimental slider position, not a recommended production cutoff. Comparisons use `probability > threshold` consistently.
+The GUI contains all five YES/NO distributions, selected-row highlights and reasons, weighted scores, sortable columns, configurable graph series, exact state/question/options/chat prompts, raw logits, extraction warnings and exceptions. Settings operate solely on stored results. The default is **Benchmark — Direct Fields**, requested_data >= 0.60 with radius 0; Production — Recall First supplies conservative rescue rules and radius 1. New selection comparisons are inclusive `>=`; historical raw inference threshold summaries remain unchanged but are not used by the new UI.
 
 Input JSON must be a nonempty object/array. Complete original JSON, parsed workbook cells (including formula text/cached values), and every page's extracted text remain in the debug export. These originals are **not** appended to classifier state. `app/objective.py` deterministically compiles the smaller `compiled_routing_objective`: field names, section cues, useful types/units, and field-specific semantic constraints. Fields are grouped by section; section labels are relevance cues, not exclusive page filters. No requested field is truncated or dropped.
 
